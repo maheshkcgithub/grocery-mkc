@@ -10,3 +10,7 @@ Simple desktop app to sell groceries. Built with Python, Tkinter and SQLite.
     pyinstaller --onefile --windowed app.py
 
 The executable is created in `dist/`.
+
+## Web version
+Open `web/index.html` in any browser. No install needed.
+Products and sales are saved in that browser.
