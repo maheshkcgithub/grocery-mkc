@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MKC Grocery</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<style>
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start }
+@media (max-width: 820px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 2px; align-content: start }
+.item .pic { margin-bottom: 6px }
+.item .name { font-weight: 600 }
+.item .stock { font-size: 0.8rem; color: var(--muted) }
+.item button { margin-top: 6px }
+.cart { position: sticky; top: 16px }
+.line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 0.9rem }
+.line span:first-child { overflow-wrap: anywhere }
+.qty { display: flex; align-items: center; gap: 4px }
+.qty button { padding: 0 8px; line-height: 1.6 }
+.total { display: flex; justify-content: space-between; font-family: var(--display); font-size: 1.4rem; font-weight: 700 }
+#checkoutForm { display: grid; gap: 10px }
+.done { text-align: center; display: grid; gap: 8px; padding: 12px 0 }
+.done strong { font-family: var(--display); font-size: 1.3rem }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MKC Grocery</h1>
+    <input id="search" type="search" placeholder="Search products" style="max-width:260px" aria-label="Search products">
+  </header>
+
+  <div class="grid">
+    <main class="shelf" id="shelf"><p class="empty">Loading products…</p></main>
+
+    <aside class="panel cart">
+      <h2>Your cart</h2>
+      <div id="cart"></div>
+      <div class="total"><span>Total</span><span class="money" id="total">0.00 kr</span></div>
+      <form id="checkoutForm" novalidate>
+        <label>Name <input id="cName" autocomplete="name"></label>
+        <label>Phone <input id="cPhone" type="tel" autocomplete="tel"></label>
+        <label>Delivery address <textarea id="cAddress" rows="2" autocomplete="street-address"></textarea></label>
+        <p class="err" id="orderErr" hidden></p>
+        <button class="primary" id="placeBtn" type="submit">Place order</button>
+      </form>
+      <div class="done" id="done" hidden>
+        <strong id="doneTitle"></strong>
+        <span class="muted">We'll call you to arrange delivery. Pay on delivery.</span>
+        <button id="newOrder" type="button">Start a new order</button>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const kr = n => n.toFixed(2) + " kr";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const picHtml = img => img && img.startsWith("data:image/") ? `<img src="${img}" alt="">` : esc(img || "🛒");
+
+let products = [];
+let cart = new Map(); // product id -> qty, remembered in this browser
+try { cart = new Map(JSON.parse(localStorage.getItem("cart") || "[]")) } catch {}
+const saveCart = () => { try { localStorage.setItem("cart", JSON.stringify([...cart])) } catch {} };
+const byId = id => products.find(p => p.id === id);
+
+async function loadProducts() {
+  try {
+    products = await (await fetch("api/products")).json();
+    for (const [id, q] of cart) { const p = byId(id); if (!p) cart.delete(id); else if (q > p.stock) p.stock ? cart.set(id, p.stock) : cart.delete(id) }
+    render();
+  } catch { $("shelf").innerHTML = `<p class="empty">Couldn't load products. Check your connection and refresh.</p>` }
+}
+
+function render() {
+  const q = $("search").value.trim().toLowerCase();
+  const shown = products.filter(p => p.name.toLowerCase().includes(q));
+  $("shelf").innerHTML = shown.length ? shown.map(p => {
+    const inCart = cart.get(p.id) || 0, left = p.stock - inCart;
+    return `<div class="item">
+      <span class="pic">${picHtml(p.image)}</span>
+      <span class="name">${esc(p.name)}</span>
+      <span class="money">${kr(p.price)}</span>
+      <span class="stock ${p.stock <= 3 ? "low" : ""}">${p.stock ? (p.stock <= 3 ? `Only ${p.stock} left` : "In stock") : "Sold out"}</span>
+      <button class="primary" data-add="${p.id}" ${left <= 0 ? "disabled" : ""}>${inCart ? `Add another (${inCart})` : "Add to cart"}</button>
+    </div>`;
+  }).join("") : `<p class="empty">${products.length ? "No products match your search." : "No products yet. Check back soon."}</p>`;
+
+  let total = 0;
+  $("cart").innerHTML = cart.size ? [...cart].map(([id, n]) => {
+    const p = byId(id); if (!p) return ""; total += p.price * n;
+    return `<div class="line"><span>${esc(p.name)}</span>
+      <span class="qty"><button data-dec="${id}" aria-label="One less">−</button>${n}<button data-inc="${id}" aria-label="One more" ${n >= p.stock ? "disabled" : ""}>+</button></span>
+      <span class="money">${kr(p.price * n)}</span></div>`;
+  }).join("") : `<p class="empty">Your cart is empty. Add something from the shelf.</p>`;
+  $("total").textContent = kr(total);
+  $("placeBtn").disabled = !cart.size;
+}
+
+function change(id, d) { const n = (cart.get(id) || 0) + d; n > 0 ? cart.set(id, n) : cart.delete(id); saveCart(); render() }
+$("shelf").addEventListener("click", e => { const b = e.target.closest("[data-add]"); if (b) change(+b.dataset.add, 1) });
+$("cart").addEventListener("click", e => {
+  const inc = e.target.closest("[data-inc]"), dec = e.target.closest("[data-dec]");
+  if (inc) change(+inc.dataset.inc, 1); if (dec) change(+dec.dataset.dec, -1);
+});
+$("search").addEventListener("input", render);
+
+$("checkoutForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = { customer: $("cName").value, phone: $("cPhone").value, address: $("cAddress").value,
+    items: [...cart].map(([id, qty]) => ({ id, qty })) };
+  const showErr = msg => { $("orderErr").textContent = msg; $("orderErr").hidden = !msg };
+  if (!body.customer.trim() || !body.phone.trim() || !body.address.trim()) return showErr("Please fill in your name, phone and address.");
+  showErr(""); $("placeBtn").disabled = true;
+  try {
+    const res = await fetch("api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) { showErr(data.error); await loadProducts(); return }
+    cart.clear(); saveCart();
+    $("checkoutForm").hidden = true; $("done").hidden = false;
+    $("doneTitle").textContent = `Order #${data.id} placed · ${kr(data.total)}`;
+    await loadProducts();
+  } catch { showErr("Couldn't send your order. Check your connection and try again.") }
+  finally { $("placeBtn").disabled = !cart.size }
+});
+$("newOrder").addEventListener("click", () => { $("done").hidden = true; $("checkoutForm").hidden = false });
+
+loadProducts();
+</script>
+</body>
+</html>
