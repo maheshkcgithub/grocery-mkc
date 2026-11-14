@@ -1,0 +1,21 @@
+# Render Blueprint: creates the online shop as one web service with a disk for the database.
+services:
+  - type: web
+    name: mkc-grocery
+    runtime: node
+    rootDir: web
+    plan: starter            # paid plan; the free plan can't attach a disk, so orders would be lost
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/products
+    disk:
+      name: shop-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DB_FILE
+        value: /var/data/shop.db
+      - key: ADMIN_PASSWORD
+        sync: false          # Render asks you for this when you create the service

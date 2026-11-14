@@ -32,8 +32,6 @@ Needs Node.js 22.13 or newer.
 Then open http://localhost:3000 (shop) and http://localhost:3000/admin.
 On Windows PowerShell, set the password with `$env:ADMIN_PASSWORD="choose-a-password"; npm start`.
 
-### Put it online
-Deploy the `web` folder to any Node host (for example Render or Railway):
-- Start command: `npm start`
-- Set the `ADMIN_PASSWORD` environment variable
-- Data is kept in `shop.db`. Give the app a persistent disk and set `DB_FILE` to a path on it, or orders are lost on restart.
+### Put it online with Render
+`render.yaml` sets everything up. In Render: **New → Blueprint**, pick this repository, enter an admin password, and click **Apply**.
+It uses the Starter plan with a 1 GB disk, so orders are kept. The free plan can't keep data.
