@@ -13,4 +13,4 @@ The executable is created in `dist/`.
 
 ## Web version
 Open `web/index.html` in any browser. No install needed.
-Products and sales are saved in that browser.
+Products (with photos) and sales are saved in that browser.

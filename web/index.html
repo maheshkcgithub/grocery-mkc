@@ -37,21 +37,26 @@ section { display: grid; gap: 14px; min-width: 0 }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px }
 label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: grid; gap: 4px }
 input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100% }
-.form { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end }
-@media (max-width: 520px) { .form { grid-template-columns: 1fr 1fr } .form label:first-child { grid-column: 1 / -1 } }
+.form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr) auto; gap: 10px; align-items: end }
+.form input[type="file"] { font-size: 0.8rem; padding: 6px }
+@media (max-width: 620px) { .form { grid-template-columns: 1fr 1fr } .form label:first-child, .form label:nth-child(4) { grid-column: 1 / -1 } }
 button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 8px 14px }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg) }
 button:disabled { opacity: 0.45; cursor: not-allowed }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .err { color: var(--warn); font-size: 0.85rem; margin: 0 }
 .shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px }
-.item { position: relative; text-align: left; display: grid; gap: 2px; padding: 12px; border-radius: 8px; font-weight: 400; min-height: 92px; align-content: start }
+.item { position: relative; text-align: left; display: grid; gap: 2px; padding: 10px; border-radius: 8px; font-weight: 400; align-content: start }
+.pic { display: grid; place-items: center; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 6px; background: var(--chip); overflow: hidden; font-size: 2.6rem; margin-bottom: 6px }
+.pic img { width: 100%; height: 100%; object-fit: cover; display: block }
+.item .photo { font-size: 0.75rem; color: var(--accent); font-weight: 600; margin-top: 2px }
+.item .photo:hover { text-decoration: underline }
 .item:hover:not(:disabled) { border-color: var(--accent) }
 .item .name { font-weight: 600 }
 .item .price { font-family: var(--mono); font-variant-numeric: tabular-nums }
 .item .stock { font-size: 0.8rem; color: var(--muted) }
 .item .stock.low { color: var(--warn) }
-.item .del { position: absolute; top: 4px; right: 4px; border: 0; background: none; color: var(--muted); padding: 2px 8px; font-size: 1rem }
+.item .del { position: absolute; top: 14px; right: 14px; background: var(--surface); color: var(--muted); border-radius: 999px; padding: 0 8px; font-size: 1rem; line-height: 1.5 }
 .receipt { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.9rem }
 .line { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line) }
 .line span:first-child { overflow-wrap: anywhere }
@@ -80,6 +85,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
         <label>Product <input id="pName" placeholder="e.g. Mjölk 3%" autocomplete="off"></label>
         <label>Price (kr) <input id="pPrice" inputmode="decimal" placeholder="17.90"></label>
         <label>Stock <input id="pStock" inputmode="numeric" placeholder="20"></label>
+        <label>Photo (optional) <input id="pImg" type="file" accept="image/*"></label>
         <button class="primary" type="submit">Add product</button>
       </form>
       <p class="err" id="formErr" hidden></p>
@@ -99,20 +105,38 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
+<input type="file" accept="image/*" id="photoPick" hidden>
 
 <script>
 const KEY = "grocery-till-v1";
 const SAMPLE = { nextId: 6, sales: [], products: [
-  { id: 1, name: "Mjölk 3% 1 l", price: 17.9, stock: 24 },
-  { id: 2, name: "Bread loaf", price: 32.5, stock: 8 },
-  { id: 3, name: "Bananas 1 kg", price: 24.9, stock: 15 },
-  { id: 4, name: "Eggs 12-pack", price: 49.0, stock: 3 },
-  { id: 5, name: "Coffee 450 g", price: 69.9, stock: 10 },
+  { id: 1, name: "Mjölk 3% 1 l", price: 17.9, stock: 24, img: "🥛" },
+  { id: 2, name: "Bread loaf", price: 32.5, stock: 8, img: "🍞" },
+  { id: 3, name: "Bananas 1 kg", price: 24.9, stock: 15, img: "🍌" },
+  { id: 4, name: "Eggs 12-pack", price: 49.0, stock: 3, img: "🥚" },
+  { id: 5, name: "Coffee 450 g", price: 69.9, stock: 10, img: "☕" },
 ]};
 let db; try { db = JSON.parse(localStorage.getItem(KEY)) } catch {}
 if (!db) db = structuredClone(SAMPLE);
+// Older saves have no pictures: give the example products theirs back
+db.products.forEach(p => { if (p.img === undefined) { const s = SAMPLE.products.find(x => x.id === p.id && x.name === p.name); p.img = s ? s.img : "" } });
 const cart = new Map(); // product id -> qty
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)) } catch {} };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); return true } catch { return false } };
+
+// Shrink a photo to a small square JPEG so many fit in browser storage
+function shrink(file) {
+  return new Promise(res => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const s = 240, c = document.createElement("canvas"); c.width = c.height = s;
+      const r = Math.max(s / im.width, s / im.height), w = im.width * r, h = im.height * r;
+      c.getContext("2d").drawImage(im, (s - w) / 2, (s - h) / 2, w, h);
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.8));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); res("") };
+    im.src = url;
+  });
+}
 const kr = n => n.toFixed(2) + " kr";
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -121,10 +145,13 @@ const byId = id => db.products.find(p => p.id === id);
 function render() {
   $("shelf").innerHTML = db.products.length ? db.products.map(p => {
     const left = p.stock - (cart.get(p.id) || 0);
+    const pic = p.img && p.img.startsWith("data:image/") ? `<img src="${p.img}" alt="">` : esc(p.img || "🛒");
     return `<button class="item" data-id="${p.id}" ${left <= 0 ? "disabled" : ""}>
+      <span class="pic">${pic}</span>
       <span class="name">${esc(p.name)}</span>
       <span class="price">${kr(p.price)}</span>
       <span class="stock ${left <= 3 ? "low" : ""}">${left <= 0 ? "Out of stock" : left + " in stock"}</span>
+      <span class="photo" role="button" data-photo="${p.id}">Change photo</span>
       <span class="del" role="button" aria-label="Remove ${esc(p.name)}" data-del="${p.id}">×</span>
     </button>`;
   }).join("") : `<p class="empty">No products yet. Add one above.</p>`;
@@ -151,17 +178,33 @@ function render() {
 let toastTimer;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2200) }
 
-$("addForm").addEventListener("submit", e => {
+$("addForm").addEventListener("submit", async e => {
   e.preventDefault();
+  const form = e.target;
   const name = $("pName").value.trim(), price = parseFloat($("pPrice").value.replace(",", ".")), stock = parseInt($("pStock").value, 10);
   const err = !name ? "Enter a product name." : !(price >= 0) ? "Enter a price, like 17.90." : !(stock >= 0) ? "Enter stock as a whole number." : "";
   $("formErr").textContent = err; $("formErr").hidden = !err;
   if (err) return;
-  db.products.push({ id: db.nextId++, name, price, stock });
-  save(); e.target.reset(); $("pName").focus(); render(); toast(`Added ${name}`);
+  const file = $("pImg").files[0];
+  const img = file ? await shrink(file) : "";
+  db.products.push({ id: db.nextId++, name, price, stock, img });
+  const saved = save(); form.reset(); $("pName").focus(); render();
+  toast(saved ? `Added ${name}` : "Added, but this browser's storage is full. Try a smaller photo.");
+});
+
+let photoFor = null;
+$("photoPick").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file || photoFor == null) return;
+  const img = await shrink(file);
+  if (!img) return toast("That file isn't a picture. Choose a JPG or PNG.");
+  byId(photoFor).img = img; render();
+  toast(save() ? "Photo updated" : "Photo shown, but this browser's storage is full so it won't be kept.");
 });
 
 $("shelf").addEventListener("click", e => {
+  const ph = e.target.closest("[data-photo]");
+  if (ph) { photoFor = +ph.dataset.photo; $("photoPick").click(); return }
   const del = e.target.closest("[data-del]");
   if (del) { const id = +del.dataset.del; db.products = db.products.filter(p => p.id !== id); cart.delete(id); save(); render(); return }
   const item = e.target.closest(".item"); if (!item) return;
