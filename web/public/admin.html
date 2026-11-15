@@ -27,6 +27,7 @@ td input.name { width: 100%; min-width: 140px }
 .status.new { background: var(--accent); color: var(--accent-fg) }
 .status.cancelled { color: var(--warn) }
 td select { width: auto; padding: 4px 6px }
+.actions { display: grid; gap: 4px; justify-items: start }
 .items { margin: 0; padding-left: 16px }
 .stack { display: grid; gap: 14px; min-width: 0 }
 </style>
@@ -89,7 +90,7 @@ const picHtml = img => !img ? `<img src="img/cart.webp" alt="">`
 let categories = [];
 const catOptions = sel => categories.map(c => `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
 let toastTimer;
-const toast = msg => { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2500) };
+const toast = (msg, ms = 2500) => { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, ms) };
 
 async function api(path, method = "GET", body) {
   const res = await fetch("api/" + path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body && JSON.stringify(body) });
@@ -204,14 +205,24 @@ async function loadOrders() {
     <td><b>${esc(o.customer)}</b><br><span class="muted">${esc(o.phone)}<br>${esc(o.address)}</span></td>
     <td><ul class="items">${o.items.map(i => `<li>${esc(i.name)} × ${i.qty}</li>`).join("")}</ul></td>
     <td class="money">${kr(o.total)}</td>
-    <td><span class="status ${o.status}">${o.status}</span><br>
-      <select aria-label="Change status">${["new", "delivered", "cancelled"].map(s => `<option ${s === o.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+    <td><div class="actions"><span class="status ${o.status}">${o.status}</span>
+      ${o.status === "new" ? `<button class="link" data-set="delivered">Mark delivered</button>` : ""}
+      ${o.status === "delivered" ? `<button class="link" data-set="new">Mark not delivered</button>` : ""}
+      ${o.status !== "cancelled" ? `<button class="link danger" data-set="cancelled">Cancel order</button>` : `<button class="link" data-set="new">Restore order</button>`}
+    </div></td>
   </tr>`).join("") : `<tr><td colspan="6" class="empty">No orders yet. They appear here as soon as a customer orders.</td></tr>`;
 }
-$("orderRows").addEventListener("change", async e => {
-  const row = e.target.closest("tr");
-  try { await api("admin/orders/" + row.dataset.id, "PATCH", { status: e.target.value }); toast(`Order #${row.dataset.id} marked ${e.target.value}`) }
-  catch (err) { toast(err.message) }
+$("orderRows").addEventListener("click", async e => {
+  const b = e.target.closest("[data-set]"); if (!b) return;
+  const row = b.closest("tr"), id = row.dataset.id, status = b.dataset.set;
+  // Cancelling asks for a second click so it can't happen by accident
+  if (status === "cancelled" && b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Click again to cancel"; return }
+  try {
+    await api("admin/orders/" + id, "PATCH", { status });
+    const name = row.querySelector("b").textContent, phone = row.querySelector(".muted").firstChild.textContent;
+    toast(status === "cancelled" ? `Order #${id} cancelled. Items are back in stock. Call or text ${name} on ${phone} to let them know.`
+      : status === "delivered" ? `Order #${id} marked delivered` : `Order #${id} is open again`, status === "cancelled" ? 8000 : 2500);
+  } catch (err) { toast(err.message, 5000) }
   loadOrders();
 });
 setInterval(() => { if (!$("sales").hidden) loadOrders() }, 30000);

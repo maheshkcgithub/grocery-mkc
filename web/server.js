@@ -146,10 +146,17 @@ app.patch("/api/admin/orders/:id", (req, res) => {
   if (!["new", "delivered", "cancelled"].includes(status)) return res.status(400).json({ error: "Unknown status." });
   const order = db.prepare("SELECT * FROM orders WHERE id=?").get(req.params.id);
   if (!order) return res.status(404).json({ error: "Order not found." });
-  db.exec("BEGIN");
-  // Cancelling puts the items back in stock; un-cancelling takes them out again
+  // Cancelling puts the items back in stock; restoring a cancelled order takes them out again
   const sign = status === "cancelled" && order.status !== "cancelled" ? 1 : order.status === "cancelled" && status !== "cancelled" ? -1 : 0;
-  if (sign) for (const l of JSON.parse(order.items)) db.prepare("UPDATE products SET stock = stock + ? WHERE id=?").run(sign * l.qty, l.id);
+  const items = JSON.parse(order.items);
+  if (sign === -1) {
+    for (const l of items) {
+      const p = db.prepare("SELECT name, stock FROM products WHERE id=?").get(l.id);
+      if (p && p.stock < l.qty) return res.status(400).json({ error: `Can't restore: only ${p.stock} ${p.name} left in stock.` });
+    }
+  }
+  db.exec("BEGIN");
+  if (sign) for (const l of items) db.prepare("UPDATE products SET stock = stock + ? WHERE id=?").run(sign * l.qty, l.id);
   db.prepare("UPDATE orders SET status=? WHERE id=?").run(status, order.id);
   db.exec("COMMIT");
   res.json({ ok: true });
