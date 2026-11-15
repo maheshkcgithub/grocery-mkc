@@ -25,6 +25,8 @@ The admin page asks for a password (any username).
 
 Product pictures in `web/public/img` are Microsoft Fluent Emoji (MIT licence, see `web/public/img/LICENSE.txt`). You can replace any of them with your own photo from the admin page.
 
+Why Node.js? See [docs/why-node.md](docs/why-node.md).
+
 ### Run it on your computer
 Needs Node.js 22.13 or newer.
 
