@@ -19,14 +19,14 @@ services:
         value: /var/data/shop.db
       - key: ADMIN_PASSWORD
         sync: false          # Render asks you for this when you create the service
-      # Email to customers (Gmail shown; change host and port for another provider)
+      # Email to customers through Yahoo Mail (for Gmail use smtp.gmail.com)
       - key: SMTP_HOST
-        value: smtp.gmail.com
+        value: smtp.mail.yahoo.com
       - key: SMTP_PORT
         value: "465"
       - key: SMTP_USER
         sync: false          # the email address the shop sends from
       - key: SMTP_PASS
-        sync: false          # for Gmail, an app password (not your normal password)
+        sync: false          # a Yahoo app password (not your normal password)
       - key: SHOP_EMAIL
         sync: false          # where you get a copy of every new order

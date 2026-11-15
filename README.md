@@ -32,14 +32,14 @@ Customers give their email at checkout. The shop then emails them:
 
 Email is off until you set these environment variables:
 
-| Variable | Example (Gmail) |
-|---|---|
-| `SMTP_HOST` | `smtp.gmail.com` |
-| `SMTP_PORT` | `465` |
-| `SMTP_USER` | `yourshop@gmail.com` |
-| `SMTP_PASS` | a Gmail **app password** (Google Account → Security → 2-Step Verification → App passwords) |
-| `SHOP_EMAIL` | where you want copies of new orders (optional) |
-| `SHOP_NAME` | name shown as the sender (optional, default "MKC Grocery") |
+| Variable | Yahoo Mail | Gmail |
+|---|---|---|
+| `SMTP_HOST` | `smtp.mail.yahoo.com` | `smtp.gmail.com` |
+| `SMTP_PORT` | `465` | `465` |
+| `SMTP_USER` | `yourshop@yahoo.com` | `yourshop@gmail.com` |
+| `SMTP_PASS` | a Yahoo **app password** (Account security → Generate app password) | a Gmail **app password** (Google Account → Security → App passwords) |
+| `SHOP_EMAIL` | where you want copies of new orders (optional) | |
+| `SHOP_NAME` | name shown as the sender (optional, default "MKC Grocery") | |
 
 If an email can't be sent, the order still goes through and the reason is written to the server log.
 
