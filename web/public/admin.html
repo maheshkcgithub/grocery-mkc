@@ -10,8 +10,8 @@
 .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line) }
 .tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted) }
 .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent) }
-.form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr) auto; gap: 10px; align-items: end }
-@media (max-width: 680px) { .form { grid-template-columns: 1fr 1fr } .form label:first-child, .form label:nth-child(4) { grid-column: 1 / -1 } }
+.form { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr) auto; gap: 10px; align-items: end }
+@media (max-width: 860px) { .form { grid-template-columns: 1fr 1fr } .form label:nth-child(2), .form label:nth-child(5) { grid-column: 1 / -1 } }
 .scroll { overflow-x: auto }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem }
 th { text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500 }
@@ -46,6 +46,7 @@ td select { width: auto; padding: 4px 6px }
   <!-- PRODUCTS -->
   <section id="products" class="stack">
     <form class="panel form" id="addForm" novalidate>
+      <label>Section <select id="pCat"></select></label>
       <label>Product <input id="pName" placeholder="e.g. Mjölk 3% 1 l" autocomplete="off"></label>
       <label>Price (kr) <input id="pPrice" inputmode="decimal" placeholder="17.90"></label>
       <label>Stock <input id="pStock" inputmode="numeric" placeholder="20"></label>
@@ -55,7 +56,7 @@ td select { width: auto; padding: 4px 6px }
     <p class="err" id="formErr" hidden></p>
     <div class="panel scroll">
       <table>
-        <thead><tr><th>Photo</th><th>Product</th><th>Price (kr)</th><th>Stock</th><th></th></tr></thead>
+        <thead><tr><th>Photo</th><th>Section</th><th>Product</th><th>Price (kr)</th><th>Stock</th><th></th></tr></thead>
         <tbody id="productRows"></tbody>
       </table>
     </div>
@@ -83,7 +84,10 @@ td select { width: auto; padding: 4px 6px }
 const $ = id => document.getElementById(id);
 const kr = n => n.toFixed(2) + " kr";
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const picHtml = img => img && img.startsWith("data:image/") ? `<img src="${img}" alt="">` : esc(img || "🛒");
+const picHtml = img => !img ? `<img src="img/cart.webp" alt="">`
+  : img.startsWith("data:image/") || img.startsWith("img/") ? `<img src="${esc(img)}" alt="" loading="lazy">` : esc(img);
+let categories = [];
+const catOptions = sel => categories.map(c => `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
 let toastTimer;
 const toast = msg => { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2500) };
 
@@ -122,14 +126,16 @@ $("tabSales").onclick = () => show("sales");
 // ---- Products ----
 let products = [];
 async function loadProducts() {
-  products = await api("products");
+  if (!categories.length) { categories = await api("categories"); $("pCat").innerHTML = catOptions(categories[0]) }
+  products = (await api("products")).sort((a, b) => categories.indexOf(a.category) - categories.indexOf(b.category) || a.name.localeCompare(b.name));
   $("productRows").innerHTML = products.length ? products.map(p => `<tr data-id="${p.id}">
     <td><span class="pic small">${picHtml(p.image)}</span><button class="link" data-photo>Change</button></td>
+    <td><select data-field="category" aria-label="Section">${catOptions(p.category)}</select></td>
     <td><input class="name" value="${esc(p.name)}" data-field="name" aria-label="Name"></td>
     <td><input value="${p.price.toFixed(2)}" inputmode="decimal" data-field="price" aria-label="Price"></td>
     <td><input value="${p.stock}" inputmode="numeric" data-field="stock" aria-label="Stock" class="${p.stock <= 3 ? "low" : ""}"></td>
     <td><button class="link danger" data-del>Remove</button></td>
-  </tr>`).join("") : `<tr><td colspan="5" class="empty">No products yet. Add your first one above.</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="6" class="empty">No products yet. Add your first one above.</td></tr>`;
 }
 
 function readForm(name, price, stock) {
@@ -147,7 +153,8 @@ $("addForm").addEventListener("submit", async e => {
   if (typeof p === "string") return;
   const file = $("pImg").files[0];
   p.image = file ? await shrink(file) : "";
-  try { await api("admin/products", "POST", p); e.target.reset(); toast(`Added ${p.name}`); loadProducts() }
+  p.category = $("pCat").value;
+  try { await api("admin/products", "POST", p); e.target.reset(); $("pCat").value = p.category; toast(`Added ${p.name} to ${p.category}`); loadProducts() }
   catch (err) { toast(err.message) }
 });
 
@@ -158,7 +165,7 @@ $("productRows").addEventListener("change", async e => {
   const val = f => row.querySelector(`[data-field="${f}"]`).value;
   const p = readForm(val("name"), val("price"), val("stock").trim() === "" ? NaN : val("stock"));
   if (typeof p === "string") { toast(p); return loadProducts() }
-  try { await api("admin/products/" + cur.id, "PUT", { ...p, image: cur.image }); toast(`Saved ${p.name}`); loadProducts() }
+  try { await api("admin/products/" + cur.id, "PUT", { ...p, category: val("category"), image: cur.image }); toast(`Saved ${p.name}`); loadProducts() }
   catch (err) { toast(err.message) }
 });
 
@@ -178,8 +185,8 @@ $("photoPick").addEventListener("change", async e => {
   if (!file || !photoFor) return;
   const image = await shrink(file);
   if (!image) return toast("That file isn't a picture. Choose a JPG or PNG.");
-  const { id, name, price, stock } = photoFor;
-  try { await api("admin/products/" + id, "PUT", { name, price, stock, image }); toast("Photo updated"); loadProducts() } catch (err) { toast(err.message) }
+  const { id, name, price, stock, category } = photoFor;
+  try { await api("admin/products/" + id, "PUT", { name, price, stock, category, image }); toast("Photo updated"); loadProducts() } catch (err) { toast(err.message) }
 });
 
 // ---- Sales ----

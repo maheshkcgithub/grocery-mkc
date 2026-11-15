@@ -20,7 +20,10 @@ Customers order on the shop page. You manage products and see sales on a separat
 | Admin: Products | `/admin` | You: add products with photos, edit price and stock, remove |
 | Admin: Sales | `/admin`, Sales tab | You: today's sales, all orders, mark delivered or cancelled |
 
+The shop has sections: Fresh vegetables, Dairy, Bread, Meat, Poultry and Fish (plus Other). A new shop starts with 36 example products.
 The admin page asks for a password (any username).
+
+Product pictures in `web/public/img` are Microsoft Fluent Emoji (MIT licence, see `web/public/img/LICENSE.txt`). You can replace any of them with your own photo from the admin page.
 
 ### Run it on your computer
 Needs Node.js 22.13 or newer.

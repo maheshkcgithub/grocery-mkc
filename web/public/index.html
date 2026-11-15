@@ -9,6 +9,12 @@
 <style>
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start }
 @media (max-width: 820px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+.sections { display: grid; gap: 28px; min-width: 0 }
+.sections h2 { font-size: 1.3rem; margin-bottom: 10px }
+.sections section { scroll-margin-top: 16px }
+.cats { display: flex; flex-wrap: wrap; gap: 8px }
+.cats a { padding: 6px 14px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--fg); text-decoration: none; font-weight: 500; font-size: 0.9rem }
+.cats a:hover { border-color: var(--accent) }
 .shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px }
 .item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 2px; align-content: start }
 .item .pic { margin-bottom: 6px }
@@ -32,9 +38,10 @@
     <h1>MKC Grocery</h1>
     <input id="search" type="search" placeholder="Search products" style="max-width:260px" aria-label="Search products">
   </header>
+  <nav class="cats" id="cats" aria-label="Shop sections"></nav>
 
   <div class="grid">
-    <main class="shelf" id="shelf"><p class="empty">Loading products…</p></main>
+    <main class="sections" id="shelf"><p class="empty">Loading products…</p></main>
 
     <aside class="panel cart">
       <h2>Your cart</h2>
@@ -61,9 +68,11 @@
 const $ = id => document.getElementById(id);
 const kr = n => n.toFixed(2) + " kr";
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const picHtml = img => img && img.startsWith("data:image/") ? `<img src="${img}" alt="">` : esc(img || "🛒");
+const picHtml = img => !img ? `<img src="img/cart.webp" alt="">`
+  : img.startsWith("data:image/") || img.startsWith("img/") ? `<img src="${esc(img)}" alt="" loading="lazy">` : esc(img);
+const slug = c => "cat-" + c.toLowerCase().replace(/[^a-z]+/g, "-");
 
-let products = [];
+let products = [], categories = [];
 let cart = new Map(); // product id -> qty, remembered in this browser
 try { cart = new Map(JSON.parse(localStorage.getItem("cart") || "[]")) } catch {}
 const saveCart = () => { try { localStorage.setItem("cart", JSON.stringify([...cart])) } catch {} };
@@ -71,7 +80,7 @@ const byId = id => products.find(p => p.id === id);
 
 async function loadProducts() {
   try {
-    products = await (await fetch("api/products")).json();
+    [products, categories] = await Promise.all([fetch("api/products").then(r => r.json()), fetch("api/categories").then(r => r.json())]);
     for (const [id, q] of cart) { const p = byId(id); if (!p) cart.delete(id); else if (q > p.stock) p.stock ? cart.set(id, p.stock) : cart.delete(id) }
     render();
   } catch { $("shelf").innerHTML = `<p class="empty">Couldn't load products. Check your connection and refresh.</p>` }
@@ -80,7 +89,9 @@ async function loadProducts() {
 function render() {
   const q = $("search").value.trim().toLowerCase();
   const shown = products.filter(p => p.name.toLowerCase().includes(q));
-  $("shelf").innerHTML = shown.length ? shown.map(p => {
+  $("cats").innerHTML = categories.filter(c => products.some(p => p.category === c))
+    .map(c => `<a href="#${slug(c)}">${esc(c)}</a>`).join("");
+  const card = p => {
     const inCart = cart.get(p.id) || 0, left = p.stock - inCart;
     return `<div class="item">
       <span class="pic">${picHtml(p.image)}</span>
@@ -89,7 +100,11 @@ function render() {
       <span class="stock ${p.stock <= 3 ? "low" : ""}">${p.stock ? (p.stock <= 3 ? `Only ${p.stock} left` : "In stock") : "Sold out"}</span>
       <button class="primary" data-add="${p.id}" ${left <= 0 ? "disabled" : ""}>${inCart ? `Add another (${inCart})` : "Add to cart"}</button>
     </div>`;
-  }).join("") : `<p class="empty">${products.length ? "No products match your search." : "No products yet. Check back soon."}</p>`;
+  };
+  const groups = categories.map(c => [c, shown.filter(p => p.category === c)]).filter(([, list]) => list.length);
+  $("shelf").innerHTML = groups.length
+    ? groups.map(([c, list]) => `<section id="${slug(c)}"><h2>${esc(c)}</h2><div class="shelf">${list.map(card).join("")}</div></section>`).join("")
+    : `<p class="empty">${products.length ? "No products match your search." : "No products yet. Check back soon."}</p>`;
 
   let total = 0;
   $("cart").innerHTML = cart.size ? [...cart].map(([id, n]) => {

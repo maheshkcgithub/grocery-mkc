@@ -15,16 +15,38 @@ const db = new DatabaseSync(dbFile);
 db.exec(`
   CREATE TABLE IF NOT EXISTS products(
     id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL NOT NULL,
-    stock INTEGER NOT NULL, image TEXT NOT NULL DEFAULT '');
+    stock INTEGER NOT NULL, image TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT 'Other');
   CREATE TABLE IF NOT EXISTS orders(
     id INTEGER PRIMARY KEY, customer TEXT NOT NULL, phone TEXT NOT NULL, address TEXT NOT NULL,
     items TEXT NOT NULL, total REAL NOT NULL, status TEXT NOT NULL DEFAULT 'new',
     created TEXT NOT NULL DEFAULT (datetime('now')));
 `);
+// Databases made before categories existed get the new column
+if (!db.prepare("PRAGMA table_info(products)").all().some(c => c.name === "category"))
+  db.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'");
+
+// Shop sections, in the order customers see them
+const CATEGORIES = ["Fresh vegetables", "Dairy", "Bread", "Meat", "Poultry", "Fish", "Other"];
+
 if (isNew) {
-  const add = db.prepare("INSERT INTO products(name, price, stock, image) VALUES(?,?,?,?)");
-  [["Mjölk 3% 1 l", 17.9, 24, "🥛"], ["Bread loaf", 32.5, 8, "🍞"], ["Bananas 1 kg", 24.9, 15, "🍌"],
-   ["Eggs 12-pack", 49, 3, "🥚"], ["Coffee 450 g", 69.9, 10, "☕"]].forEach(p => add.run(...p));
+  const add = db.prepare("INSERT INTO products(category, name, price, stock, image) VALUES(?,?,?,?,?)");
+  const examples = {
+    "Fresh vegetables": [["Carrots 1 kg", 14.9, 40, "carrots"], ["Potatoes 2 kg", 24.9, 30, "potatoes"], ["Tomatoes 500 g", 22.9, 25, "tomatoes"],
+      ["Cucumber", 12.9, 20, "cucumber"], ["Broccoli", 19.9, 15, "broccoli"], ["Yellow onions 1 kg", 15.9, 30, "onions"],
+      ["Red bell pepper", 9.9, 25, "bell-pepper"], ["Iceberg lettuce", 17.9, 12, "lettuce"], ["Garlic 3-pack", 8.9, 40, "garlic"]],
+    "Dairy": [["Mjölk 3% 1 l", 17.9, 24, "milk"], ["Butter 500 g", 54.9, 12, "butter"], ["Hushållsost 1 kg", 109, 8, "cheese"],
+      ["Greek yoghurt 1 kg", 39.9, 10, "yoghurt"], ["Eggs 12-pack", 49, 3, "eggs"]],
+    "Bread": [["Sourdough loaf", 42.9, 8, "sourdough"], ["Baguette", 24.9, 10, "baguette"], ["Croissants 4-pack", 39.9, 6, "croissant"],
+      ["Bagels 4-pack", 34.9, 7, "bagel"], ["Tunnbröd", 29.9, 9, "flatbread"], ["Pretzel", 18.9, 10, "pretzel"]],
+    "Meat": [["Beef entrecôte 400 g", 129, 6, "steak"], ["Pork ribs 1 kg", 89.9, 5, "ribs"], ["Bacon 140 g", 22.9, 20, "bacon"],
+      ["Falukorv 800 g", 39.9, 12, "sausage"], ["Burger patties 4-pack", 69.9, 8, "burger"]],
+    "Poultry": [["Chicken drumsticks 1 kg", 59.9, 10, "drumsticks"], ["Whole chicken 1.2 kg", 79.9, 6, "whole-chicken"],
+      ["Chicken breast fillets 900 g", 109, 8, "chicken-breast"], ["Turkey breast 500 g", 89.9, 4, "turkey"], ["Duck breast 350 g", 99.9, 3, "duck"]],
+    "Fish": [["Salmon fillet 400 g", 89.9, 8, "salmon"], ["Cod fillet 400 g", 79.9, 6, "cod"], ["Peeled shrimp 500 g", 99, 7, "shrimp"],
+      ["Crayfish 1 kg", 199, 4, "crayfish"], ["Pickled herring 470 g", 34.9, 10, "herring"], ["Mussels 1 kg", 59.9, 5, "mussels"]],
+  };
+  for (const [cat, items] of Object.entries(examples))
+    for (const [name, price, stock, img] of items) add.run(cat, name, price, stock, `img/${img}.webp`);
 }
 
 const app = express();
@@ -46,6 +68,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/api/products", (req, res) => {
   res.json(db.prepare("SELECT * FROM products ORDER BY name").all());
 });
+app.get("/api/categories", (req, res) => res.json(CATEGORIES));
 
 app.post("/api/orders", (req, res) => {
   const { customer, phone, address, items } = req.body || {};
@@ -80,25 +103,30 @@ app.post("/api/orders", (req, res) => {
 
 // ---- Admin API: products ----
 function readProduct(body) {
-  const { name, price, stock, image = "" } = body || {};
+  const { name, price, stock, image = "", category = "Other" } = body || {};
+  if (!CATEGORIES.includes(category)) return "Choose a section for the product.";
   if (typeof name !== "string" || !name.trim()) return "Enter a product name.";
   if (typeof price !== "number" || !(price >= 0)) return "Enter a price, like 17.90.";
   if (!Number.isInteger(stock) || stock < 0) return "Enter stock as a whole number.";
   if (typeof image !== "string" || image.length > 1_500_000) return "That photo is too large.";
-  return { name: name.trim(), price, stock, image };
+  // A photo is an uploaded picture, a built-in picture from img/, or a short symbol from older versions
+  const okImage = !image || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image)
+    || /^img\/[a-z0-9-]+\.webp$/.test(image) || /^[^<>"'&]{1,8}$/.test(image);
+  if (!okImage) return "That photo can't be used.";
+  return { category, name: name.trim(), price, stock, image };
 }
 
 app.post("/api/admin/products", (req, res) => {
   const p = readProduct(req.body);
   if (typeof p === "string") return res.status(400).json({ error: p });
-  const r = db.prepare("INSERT INTO products(name, price, stock, image) VALUES(?,?,?,?)").run(p.name, p.price, p.stock, p.image);
+  const r = db.prepare("INSERT INTO products(category, name, price, stock, image) VALUES(?,?,?,?,?)").run(p.category, p.name, p.price, p.stock, p.image);
   res.json({ id: Number(r.lastInsertRowid) });
 });
 
 app.put("/api/admin/products/:id", (req, res) => {
   const p = readProduct(req.body);
   if (typeof p === "string") return res.status(400).json({ error: p });
-  db.prepare("UPDATE products SET name=?, price=?, stock=?, image=? WHERE id=?").run(p.name, p.price, p.stock, p.image, req.params.id);
+  db.prepare("UPDATE products SET category=?, name=?, price=?, stock=?, image=? WHERE id=?").run(p.category, p.name, p.price, p.stock, p.image, req.params.id);
   res.json({ ok: true });
 });
 
