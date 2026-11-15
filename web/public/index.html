@@ -49,6 +49,7 @@
       <div class="total"><span>Total</span><span class="money" id="total">0.00 kr</span></div>
       <form id="checkoutForm" novalidate>
         <label>Name <input id="cName" autocomplete="name"></label>
+        <label>Email <input id="cEmail" type="email" autocomplete="email"></label>
         <label>Phone <input id="cPhone" type="tel" autocomplete="tel"></label>
         <label>Delivery address <textarea id="cAddress" rows="2" autocomplete="street-address"></textarea></label>
         <p class="err" id="orderErr" hidden></p>
@@ -56,7 +57,7 @@
       </form>
       <div class="done" id="done" hidden>
         <strong id="doneTitle"></strong>
-        <span class="muted">We'll call you to arrange delivery. Pay on delivery.</span>
+        <span class="muted" id="doneNote"></span>
         <button id="newOrder" type="button">Start a new order</button>
       </div>
     </aside>
@@ -127,10 +128,11 @@ $("search").addEventListener("input", render);
 
 $("checkoutForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const body = { customer: $("cName").value, phone: $("cPhone").value, address: $("cAddress").value,
+  const body = { customer: $("cName").value, email: $("cEmail").value.trim(), phone: $("cPhone").value, address: $("cAddress").value,
     items: [...cart].map(([id, qty]) => ({ id, qty })) };
   const showErr = msg => { $("orderErr").textContent = msg; $("orderErr").hidden = !msg };
-  if (!body.customer.trim() || !body.phone.trim() || !body.address.trim()) return showErr("Please fill in your name, phone and address.");
+  if (!body.customer.trim() || !body.email || !body.phone.trim() || !body.address.trim()) return showErr("Please fill in your name, email, phone and address.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)) return showErr("Please enter a valid email address, like anna@example.com.");
   showErr(""); $("placeBtn").disabled = true;
   try {
     const res = await fetch("api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -139,6 +141,7 @@ $("checkoutForm").addEventListener("submit", async e => {
     cart.clear(); saveCart();
     $("checkoutForm").hidden = true; $("done").hidden = false;
     $("doneTitle").textContent = `Order #${data.id} placed · ${kr(data.total)}`;
+    $("doneNote").textContent = (data.emailing ? `A confirmation is on its way to ${body.email}. ` : "") + "We'll call you to arrange delivery. Pay on delivery.";
     await loadProducts();
   } catch { showErr("Couldn't send your order. Check your connection and try again.") }
   finally { $("placeBtn").disabled = !cart.size }

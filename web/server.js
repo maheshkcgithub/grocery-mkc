@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const nodemailer = require("nodemailer");
 
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin";
@@ -21,9 +22,27 @@ db.exec(`
     items TEXT NOT NULL, total REAL NOT NULL, status TEXT NOT NULL DEFAULT 'new',
     created TEXT NOT NULL DEFAULT (datetime('now')));
 `);
-// Databases made before categories existed get the new column
-if (!db.prepare("PRAGMA table_info(products)").all().some(c => c.name === "category"))
-  db.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'");
+// Databases made by older versions get the newer columns
+const hasColumn = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col);
+if (!hasColumn("products", "category")) db.exec("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'");
+if (!hasColumn("orders", "email")) db.exec("ALTER TABLE orders ADD COLUMN email TEXT NOT NULL DEFAULT ''");
+
+// ---- Email (optional): set SMTP_HOST, SMTP_USER and SMTP_PASS to turn it on ----
+const SHOP_NAME = process.env.SHOP_NAME || "MKC Grocery";
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
+const mailer = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+  ? nodemailer.createTransport({ host: process.env.SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
+  : null;
+if (!mailer) console.warn("Email is off. Set SMTP_HOST, SMTP_USER and SMTP_PASS to email customers.");
+
+async function sendMail({ to, subject, text, bcc }) {
+  if (!mailer || !to) return false;
+  await mailer.sendMail({ from: { name: SHOP_NAME, address: process.env.MAIL_FROM || process.env.SMTP_USER }, to, bcc, subject, text });
+  return true;
+}
+const itemLines = items => items.map(i => `  ${i.qty} x ${i.name}   ${(i.price * i.qty).toFixed(2)} kr`).join("\n");
+const isEmail = s => typeof s === "string" && s.length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 
 // Shop sections, in the order customers see them
 const CATEGORIES = ["Fresh vegetables", "Dairy", "Bread", "Meat", "Poultry", "Fish", "Other"];
@@ -71,9 +90,10 @@ app.get("/api/products", (req, res) => {
 app.get("/api/categories", (req, res) => res.json(CATEGORIES));
 
 app.post("/api/orders", (req, res) => {
-  const { customer, phone, address, items } = req.body || {};
+  const { customer, email, phone, address, items } = req.body || {};
   const filled = [customer, phone, address].every(s => typeof s === "string" && s.trim());
-  if (!filled) return res.status(400).json({ error: "Please fill in your name, phone and address." });
+  if (!filled) return res.status(400).json({ error: "Please fill in your name, email, phone and address." });
+  if (!isEmail(email)) return res.status(400).json({ error: "Please enter a valid email address, like anna@example.com." });
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: "Your cart is empty." });
 
   const getProduct = db.prepare("SELECT * FROM products WHERE id = ?");
@@ -91,10 +111,17 @@ app.post("/api/orders", (req, res) => {
       total += p.price * qty;
     }
     total = Math.round(total * 100) / 100;
-    const r = db.prepare("INSERT INTO orders(customer, phone, address, items, total) VALUES(?,?,?,?,?)")
-      .run(customer.trim(), phone.trim(), address.trim(), JSON.stringify(lines), total);
+    const r = db.prepare("INSERT INTO orders(customer, email, phone, address, items, total) VALUES(?,?,?,?,?,?)")
+      .run(customer.trim(), email.trim(), phone.trim(), address.trim(), JSON.stringify(lines), total);
     db.exec("COMMIT");
-    res.json({ id: Number(r.lastInsertRowid), total });
+    const id = Number(r.lastInsertRowid);
+    res.json({ id, total, emailing: Boolean(mailer) });
+    // Confirmation to the customer, with a copy to the shop (sent after replying, so a slow mail server doesn't delay the customer)
+    sendMail({
+      to: email.trim(), bcc: process.env.SHOP_EMAIL, subject: `${SHOP_NAME}: order #${id} confirmed`,
+      text: `Hi ${customer.trim()},\n\nThank you for your order #${id}.\n\n${itemLines(lines)}\n\nTotal: ${total.toFixed(2)} kr\n\n`
+        + `We'll deliver to:\n${address.trim()}\n\nWe'll call you on ${phone.trim()} to arrange delivery. You pay on delivery.\n\n${SHOP_NAME}`,
+    }).catch(e => console.error(`Order #${id}: confirmation email failed: ${e.message}`));
   } catch (e) {
     db.exec("ROLLBACK");
     res.status(400).json({ error: e.message });
@@ -159,7 +186,17 @@ app.patch("/api/admin/orders/:id", (req, res) => {
   if (sign) for (const l of items) db.prepare("UPDATE products SET stock = stock + ? WHERE id=?").run(sign * l.qty, l.id);
   db.prepare("UPDATE orders SET status=? WHERE id=?").run(status, order.id);
   db.exec("COMMIT");
-  res.json({ ok: true });
+
+  // Tell the customer when their order is cancelled; the reply says whether the email went out
+  if (sign !== 1) return res.json({ ok: true, emailed: false });
+  sendMail({
+    to: order.email, subject: `${SHOP_NAME}: order #${order.id} cancelled`,
+    text: `Hi ${order.customer},\n\nWe're sorry, your order #${order.id} has been cancelled.\n\n${itemLines(items)}\n\n`
+      + `Total: ${order.total.toFixed(2)} kr\n\nYou have not been charged, since payment is on delivery.\n`
+      + `If you have any questions, just reply to this email.\n\n${SHOP_NAME}`,
+  }).then(
+    emailed => res.json({ ok: true, emailed }),
+    e => { console.error(`Order #${order.id}: cancellation email failed: ${e.message}`); res.json({ ok: true, emailed: false }) });
 });
 
 app.listen(PORT, () => console.log(`Shop: http://localhost:${PORT}   Admin: http://localhost:${PORT}/admin`));

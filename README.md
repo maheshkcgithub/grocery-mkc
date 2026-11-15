@@ -25,6 +25,24 @@ The admin page asks for a password (any username).
 
 Product pictures in `web/public/img` are Microsoft Fluent Emoji (MIT licence, see `web/public/img/LICENSE.txt`). You can replace any of them with your own photo from the admin page.
 
+### Emails to customers
+Customers give their email at checkout. The shop then emails them:
+- a confirmation when they order (you get a copy at `SHOP_EMAIL`)
+- a message when you cancel their order
+
+Email is off until you set these environment variables:
+
+| Variable | Example (Gmail) |
+|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` |
+| `SMTP_PORT` | `465` |
+| `SMTP_USER` | `yourshop@gmail.com` |
+| `SMTP_PASS` | a Gmail **app password** (Google Account → Security → 2-Step Verification → App passwords) |
+| `SHOP_EMAIL` | where you want copies of new orders (optional) |
+| `SHOP_NAME` | name shown as the sender (optional, default "MKC Grocery") |
+
+If an email can't be sent, the order still goes through and the reason is written to the server log.
+
 Why Node.js? See [docs/why-node.md](docs/why-node.md).
 
 ### Run it on your computer
@@ -33,6 +51,8 @@ Needs Node.js 22.13 or newer.
     cd web
     npm install
     ADMIN_PASSWORD=choose-a-password npm start
+
+To try emails locally, also set the `SMTP_...` variables below.
 
 Then open http://localhost:3000 (shop) and http://localhost:3000/admin.
 On Windows PowerShell, set the password with `$env:ADMIN_PASSWORD="choose-a-password"; npm start`.
